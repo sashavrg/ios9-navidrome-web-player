@@ -5,7 +5,7 @@
   "main": "config.example.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "concurrently \"http-server -S -C cert.pem -K key.pem -p 8080\" \"node log-server.js\""
+    "start": "concurrently \"http-server -S -C cert.pem -K key.pem -p 8085\" \"node log-server.js\""
   },
   "repository": {
     "type": "git",
@@ -19,6 +19,8 @@
   },
   "homepage": "https://github.com/sashavrg/ios9-navidrome-web-player#readme",
   "dependencies": {
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
     "express": "^5.1.0"
   },
   "devDependencies": {

@@ -311,9 +311,41 @@
             setupEventListeners();
             audioPlayer.volume = volumeSlider.value / 100;
             loadMusicLibrary();
+            loadAlbumById("6yJiOPepfcx3DqOeeksnH4");
+        
         }
 
-        
+        function loadAlbumById(albumId) {
+    var url = buildApiUrl('getAlbum.view', { id: albumId });
+
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            if (data.album && data.album.song) {
+                playlist = data.album.song;
+                isLoading = false;
+                playlistEl.innerHTML = ''; // Clear the loading text
+                
+                // Display and load the first track
+                for (let i = 0; i < playlist.length; i++) {
+                    let track = playlist[i];
+                    let item = document.createElement('div');
+                    item.textContent = track.title;
+                    item.onclick = () => loadTrack(i);
+                    playlistEl.appendChild(item);
+                }
+
+                loadTrack(0); // Load first track
+            } else {
+                showError("Album not found or no songs.");
+            }
+        })
+        .catch(err => {
+            console.error("Error loading album:", err);
+            showError("Failed to load album.");
+        });
+}
+
         function showLoading() {
             playlistEl.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">Loading music library...</div>';
         }
@@ -347,22 +379,154 @@ function buildApiUrl(endpoint, params) {
     params = params || {};
     var auth = generateToken();
     var url = NAVIDROME_URL + '/rest/' + endpoint + '?' +
-              'u=' + encodeURIComponent(auth.u) +
-              '&t=' + auth.t +
-              '&s=' + auth.s +
-              '&v=' + auth.v +
-              '&c=' + auth.c +
-              '&f=' + auth.f;
-
+        'u=' + encodeURIComponent(auth.u) +
+        '&t=' + auth.t +
+        '&s=' + auth.s +
+        '&v=' + auth.v +
+        '&c=' + auth.c;
+    
+    // Only add f=json for non-stream endpoints
+    if (endpoint !== 'stream.view') {
+        url += '&f=' + auth.f;
+    }
+    
     for (var key in params) {
         if (params.hasOwnProperty(key)) {
             url += '&' + key + '=' + encodeURIComponent(params[key]);
         }
     }
-    
     console.log("Built API URL:", url);
     remoteLog("Built API URL: " + url);
     return url;
+}
+
+function loadTrack(trackIndex) {
+    if (trackIndex >= 0 && trackIndex < playlist.length) {
+        currentTrackIndex = trackIndex;
+        var track = playlist[trackIndex];
+        
+        remoteLog("Loading track " + trackIndex + ": " + track.title);
+        
+        // Generate primary stream URL
+        var streamUrl = buildApiUrl('stream.view', { id: track.id });
+        
+        // Add cache-busting timestamp
+        streamUrl += '&_t=' + Date.now();
+        
+        loadAudioWithMultipleFallbacks(audioElement, streamUrl, track.title, track.id);
+        
+        updateTrackDisplay(track);
+    }
+}
+
+function loadAudioWithMultipleFallbacks(audioElement, primaryUrl, trackName, trackId) {
+    var attemptCount = 0;
+    var maxAttempts = 4;
+    
+    function tryLoadAudio(url, attemptNumber) {
+        remoteLog("Attempt " + attemptNumber + " for track: " + trackName);
+        remoteLog("Using URL: " + url);
+        
+        // Clear previous error handlers
+        audioElement.onerror = null;
+        audioElement.onloadstart = null;
+        audioElement.oncanplay = null;
+        audioElement.onloadeddata = null;
+        
+        audioElement.onloadstart = function() {
+            remoteLog("Audio load started for: " + trackName + " (attempt " + attemptNumber + ")");
+        };
+        
+        audioElement.onloadeddata = function() {
+            remoteLog("Audio data loaded successfully for: " + trackName);
+        };
+        
+        audioElement.oncanplay = function() {
+            remoteLog("Audio can play: " + trackName);
+        };
+        
+        audioElement.onerror = function(e) {
+            var errorCode = audioElement.error ? audioElement.error.code : 'unknown';
+            var errorMessage = getAudioErrorMessage(errorCode);
+            
+            remoteLog("Audio error code: " + errorCode + " (" + errorMessage + ") for track: " + trackName);
+            remoteLog("Failed URL: " + url);
+            
+            attemptCount++;
+            if (attemptCount < maxAttempts) {
+                var fallbackUrl = generateFallbackUrl(trackId, attemptNumber);
+                setTimeout(function() {
+                    tryLoadAudio(fallbackUrl, attemptCount + 1);
+                }, 500);
+            } else {
+                remoteLog("All " + maxAttempts + " attempts failed for: " + trackName);
+                // Could try next track or show error message
+            }
+        };
+        
+        // Set the source
+        audioElement.src = url;
+        remoteLog("Setting audio source: " + url);
+    }
+    
+    // Start with the primary URL
+    tryLoadAudio(primaryUrl, 1);
+}
+
+function generateFallbackUrl(trackId, attemptNumber) {
+    var auth = generateToken();
+    var baseUrl = NAVIDROME_URL + '/rest/stream.view?' +
+        'u=' + encodeURIComponent(auth.u) +
+        '&t=' + auth.t +
+        '&s=' + auth.s +
+        '&v=' + auth.v +
+        '&c=' + auth.c +
+        '&id=' + trackId;
+    
+    // Different fallback strategies
+    switch(attemptNumber) {
+        case 2:
+            // Try without format specification
+            return baseUrl + '&_t=' + Date.now();
+        case 3:
+            // Try with even lower bitrate
+            return baseUrl + '&format=mp3&maxBitRate=64&_t=' + Date.now();
+        case 4:
+            // Try with raw stream (no conversion)
+            return baseUrl + '&raw=true&_t=' + Date.now();
+        default:
+            return baseUrl + '&_t=' + Date.now();
+    }
+}
+
+function getAudioErrorMessage(errorCode) {
+    switch(errorCode) {
+        case 1: return "MEDIA_ERR_ABORTED";
+        case 2: return "MEDIA_ERR_NETWORK";
+        case 3: return "MEDIA_ERR_DECODE";
+        case 4: return "MEDIA_ERR_SRC_NOT_SUPPORTED";
+        default: return "UNKNOWN_ERROR";
+    }
+}
+
+// Test function to check if a URL is accessible
+function testStreamUrl(trackId) {
+    var testUrl = buildApiUrl('stream.view', { id: trackId });
+    
+    remoteLog("Testing stream URL: " + testUrl);
+    
+    // Try to load just the headers to see if the URL is valid
+    var xhr = new XMLHttpRequest();
+    xhr.open('HEAD', testUrl, true);
+    xhr.onload = function() {
+        remoteLog("Stream URL test - Status: " + xhr.status);
+        remoteLog("Content-Type: " + xhr.getResponseHeader('Content-Type'));
+        remoteLog("Content-Length: " + xhr.getResponseHeader('Content-Length'));
+    };
+    xhr.onerror = function() {
+        remoteLog("Stream URL test failed - Network error");
+    };
+    xhr.send();
 }
         
         // simple MD5 implementation for Subsonic auth
@@ -820,6 +984,27 @@ function attemptSearchFallback() {
                 isPlaying = false;
                 playBtn.innerHTML = '▶';
             });
+            audioPlayer.addEventListener('error', function(e) {
+    remoteLog('Audio error details:', {
+        error: e.target.error,
+        code: e.target.error ? e.target.error.code : 'unknown',
+        src: e.target.src,
+        networkState: e.target.networkState,
+        readyState: e.target.readyState
+    });
+});
+
+audioPlayer.addEventListener('loadstart', function(e) {
+    remoteLog('Audio load started:', e.target.src);
+});
+
+audioPlayer.addEventListener('loadeddata', function(e) {
+    remoteLog('Audio data loaded successfully');
+});
+
+audioPlayer.addEventListener('canplay', function(e) {
+    remoteLog('Audio can start playing');
+});
         }
         
         function loadTrack(index) {

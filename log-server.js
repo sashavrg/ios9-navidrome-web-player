@@ -48,5 +48,5 @@ const options = {
 };
 
 https.createServer(options, app).listen(5000, '0.0.0.0', () => {
-  console.log('Enhanced logger running at https://0.0.0.0:5000');
+  console.log('Enhanced logger running at http://0.0.0.0:5000');
 });

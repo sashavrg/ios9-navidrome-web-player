@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  web:
+    build: .
+    container_name: ios9-web-player
+    restart: unless-stopped
+    networks:
+      - npm_proxy
+    labels:
+      - "traefik.enable=true"                  # If using Traefik
+      - "nginx.proxy=true"                     # Or your own convention
+    expose:
+      - "80"
+
+networks:
+  npm_proxy:
+    external: true
+    name: nginx-proxy-manager_default

@@ -1,5 +1,5 @@
 (function () {
-    var LOG_SERVER = 'https://192.168.1.15:5000/log';
+    var LOG_SERVER = 'https://192.168.1.6:5000/log';
     
     function log(message) {
         var msg = '[' + new Date().toISOString() + '] ' + message;
