@@ -270,6 +270,7 @@
         
         <audio id="audioPlayer" preload="metadata"></audio>
     </div>
+    <script src="logger.js"></script>
     <script src="config.js"></script>
     <script>
         // navidrome server configuration
@@ -305,6 +306,7 @@
         // Initialize
         function init() {
             console.log("Initializing music player...");
+            remoteLog("Initializing music player...");
             showLoading();
             setupEventListeners();
             audioPlayer.volume = volumeSlider.value / 100;
@@ -321,15 +323,11 @@
         }
         
         // Generate Subsonic API authentication token
-        function generateToken() {
+    function generateToken() {
     var salt = Math.random().toString(36).substring(2, 15);
     var token = md5(PASSWORD + salt);
-    console.log("Generated token:", { 
-        password: PASSWORD, 
-        salt: salt, 
-        token: token 
-    });
-    return {
+    
+    var authObj = {
         u: USERNAME,
         t: token,
         s: salt,
@@ -337,24 +335,33 @@
         c: CLIENT_NAME,
         f: 'json'
     };
+    
+    console.log("Generated auth token");
+    remoteLog("Generated auth for user: " + USERNAME + ", salt: " + salt);
+    
+    return authObj;
 }
 
 // Update the API request builder
-function buildApiUrl(endpoint, params = {}) {
+function buildApiUrl(endpoint, params) {
+    params = params || {};
     var auth = generateToken();
-    var url = `${NAVIDROME_URL}/rest/${endpoint}?` +
-              `u=${encodeURIComponent(auth.u)}` +
-              `&t=${auth.t}` +
-              `&s=${auth.s}` +
-              `&v=${auth.v}` +
-              `&c=${auth.c}` +
-              `&f=${auth.f}`
+    var url = NAVIDROME_URL + '/rest/' + endpoint + '?' +
+              'u=' + encodeURIComponent(auth.u) +
+              '&t=' + auth.t +
+              '&s=' + auth.s +
+              '&v=' + auth.v +
+              '&c=' + auth.c +
+              '&f=' + auth.f;
 
-for (var key in params) {
-        url += `&${key}=${encodeURIComponent(params[key])}`;
+    for (var key in params) {
+        if (params.hasOwnProperty(key)) {
+            url += '&' + key + '=' + encodeURIComponent(params[key]);
+        }
     }
     
     console.log("Built API URL:", url);
+    remoteLog("Built API URL: " + url);
     return url;
 }
         
@@ -514,8 +521,10 @@ for (var key in params) {
     return binl2hex([a, b, c, d]);
 }
         
-        function loadMusicLibrary() {
+    function loadMusicLibrary() {
     console.log("Attempting to load music library...");
+    remoteLog("Attempting to load music library...");
+    
     var url = buildApiUrl('getAlbumList2.view', {
         type: 'recent',
         size: 20
@@ -523,55 +532,103 @@ for (var key in params) {
 
     var xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
+    xhr.timeout = 15000; // 15 second timeout
+
+    remoteLog('XHR Details:', {
+    url: url,
+    method: 'GET',
+    readyState: xhr.readyState
+    })
+
+    xhr.onreadystatechange = function() {
+    remoteLog('ReadyState changed:', xhr.readyState, 'Status:', xhr.status);
+    };
     
+    xhr.onerror = function() {
+    remoteLog('XHR Error details:', {
+        readyState: xhr.readyState,
+        status: xhr.status,
+        statusText: xhr.statusText,
+        responseText: xhr.responseText
+    });
+};
+
     xhr.onreadystatechange = function() {
         if (xhr.readyState === 4) {
-            console.log("Response received:", xhr.status, xhr.responseText);
+            console.log("Response received - Status:", xhr.status);
+            remoteLog("Response received - Status: " + xhr.status);
+            
             if (xhr.status === 200) {
                 try {
                     var response = JSON.parse(xhr.responseText);
+                    console.log("Parsed response:", response);
+                    remoteLog("Parsed response: " + JSON.stringify(response));
+                    
                     if (response['subsonic-response']) {
                         if (response['subsonic-response'].status === 'ok') {
-                            // Process successful response
                             if (response['subsonic-response'].albumList2) {
                                 var albums = response['subsonic-response'].albumList2.album || [];
+                                remoteLog("Found albums: " + albums.length);
                                 if (albums.length > 0) {
                                     loadAlbumSongs(albums[0].id);
                                 } else {
-                                    showError('No albums found');
+                                    remoteLog("No albums found, trying search fallback");
+                                    attemptSearchFallback();
                                 }
+                            } else {
+                                remoteLog("No albumList2 in response, trying search fallback");
+                                attemptSearchFallback();
                             }
                         } else {
                             var error = response['subsonic-response'].error || {};
                             console.error("API Error:", error);
+                            remoteLog("API Error: " + JSON.stringify(error));
                             showError(error.message || 'API request failed');
                             
-                            // Special handling for auth errors
                             if (error.code === 40) {
-                                showError('Wrong username or password. Please check credentials.');
+                                showError('Authentication failed. Check credentials.');
                             }
                         }
+                    } else {
+                        remoteLog("Invalid response format");
+                        showError('Invalid server response format');
                     }
                 } catch (e) {
                     console.error("Parse error:", e);
-                    showError('Failed to parse server response');
+                    remoteLog("Parse error: " + e.message);
+                    showError('Failed to parse server response: ' + e.message);
                 }
             } else {
+                remoteLog("HTTP Error: " + xhr.status);
                 showError('Network error: ' + xhr.status);
             }
         }
     };
     
     xhr.onerror = function() {
-        showError('Network request failed');
+        remoteLog("XHR onerror triggered");
+        showError('Network request failed - connection error');
     };
     
-    xhr.send();
+    xhr.ontimeout = function() {
+        remoteLog("XHR timeout");
+        showError('Request timed out');
+    };
+    
+    try {
+        xhr.send();
+        remoteLog("XHR request sent successfully");
+    } catch (e) {
+        remoteLog("XHR send failed: " + e.message);
+        showError('Failed to send request: ' + e.message);
+    }
 }
+
 
 
 function attemptSearchFallback() {
     console.log("Attempting search fallback...");
+    remoteLog("Attempting search fallback...");
     var auth = btoa(USERNAME + ':' + PASSWORD);
     var url = NAVIDROME_URL + '/rest/search3.view?query=*&songCount=50&f=json&v=1.15.0&c=' + CLIENT_NAME;
     
@@ -587,6 +644,7 @@ function attemptSearchFallback() {
                     if (response['subsonic-response'] && response['subsonic-response'].searchResult3) {
                         var songs = response['subsonic-response'].searchResult3.song || [];
                         console.log("Found songs via search:", songs.length);
+                        remoteLog("Found songs via search:", songs.length);
                         if (songs.length > 0) {
                             parsePlaylist(songs);
                         } else {
@@ -609,6 +667,7 @@ function attemptSearchFallback() {
         
         function loadAlbumSongs(albumId) {
     console.log("Loading songs for album:", albumId);
+    remoteLog("Loading songs for album:", albumId);
     var url = buildApiUrl('getAlbum.view', {
         id: albumId
     });
@@ -622,6 +681,7 @@ function attemptSearchFallback() {
                 try {
                     var response = JSON.parse(xhr.responseText);
                     console.log("Album response:", response);
+                    remoteLog("Album response:", response);
                     
                     if (response['subsonic-response'] && response['subsonic-response'].status === 'ok') {
                         if (response['subsonic-response'].album) {
@@ -630,6 +690,7 @@ function attemptSearchFallback() {
                             // Navidrome returns songs directly in the album object
                             var songs = album.song || [];
                             console.log("Found songs in album:", songs.length);
+                            remoteLog("Found songs in album:", songs.length);
                             
                             if (songs.length > 0) {
                                 parsePlaylist(songs);
@@ -659,6 +720,7 @@ function attemptSearchFallback() {
         
         function parsePlaylist(songs) {
     console.log("Parsing playlist from", songs.length, "songs");
+    remoteLog("Parsing playlist from", songs.length, "songs");
     playlist = [];
     
     for (var i = 0; i < songs.length; i++) {
@@ -761,35 +823,56 @@ function attemptSearchFallback() {
         }
         
         function loadTrack(index) {
-            if (index < 0 || index >= playlist.length) return;
-            
-            // Remove active class from all items
-            var items = document.querySelectorAll('.track-item');
-            for (var i = 0; i < items.length; i++) {
-                items[i].classList.remove('active');
-            }
-            
-            // Add active class to current item
-            if (items[index]) {
-                items[index].classList.add('active');
-            }
-            
-            currentTrackIndex = index;
-            var track = playlist[index];
-            
-            // Set up authenticated audio source
-            audioPlayer.src = track.url;
-            audioPlayer.setAttribute('type', 'audio/mpeg');
-            
-            // For iOS, we need to load the audio differently
-            if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
-                // iOS requires direct setting of src with credentials
-                audioPlayer.src = track.url + '&_t=' + new Date().getTime();
-            }
-            
-            currentTitle.textContent = track.title;
-            currentArtist.textContent = track.artist;
-        }
+    if (index < 0 || index >= playlist.length) {
+        remoteLog("Invalid track index: " + index);
+        return;
+    }
+    
+    remoteLog("Loading track " + index + ": " + playlist[index].title);
+    
+    // Remove active class from all items
+    var items = document.querySelectorAll('.track-item');
+    for (var i = 0; i < items.length; i++) {
+        items[i].classList.remove('active');
+    }
+    
+    // Add active class to current item
+    if (items[index]) {
+        items[index].classList.add('active');
+    }
+    
+    currentTrackIndex = index;
+    var track = playlist[index];
+    
+    // Clear previous source
+    audioPlayer.src = '';
+    
+    // Set up authenticated audio source with cache busting
+    var streamUrl = track.url + '&_t=' + new Date().getTime();
+    
+    remoteLog("Setting audio source: " + streamUrl);
+    
+    // For iOS, we need to be more explicit about audio loading
+    audioPlayer.src = streamUrl;
+    audioPlayer.load(); // Force reload
+    
+    currentTitle.textContent = track.title;
+    currentArtist.textContent = track.artist;
+    
+    // Add load event listener for this specific track
+    audioPlayer.addEventListener('loadstart', function() {
+        remoteLog("Audio load started for: " + track.title);
+    }, { once: true });
+    
+    audioPlayer.addEventListener('canplay', function() {
+        remoteLog("Audio can play: " + track.title);
+    }, { once: true });
+    
+    audioPlayer.addEventListener('error', function(e) {
+        remoteLog("Audio error: " + e.message + " for track: " + track.title);
+        remoteLog("Audio error code: " + audioPlayer.error.code);
+    }, { once: true });
+}
         
         function togglePlay() {
             if (currentTrackIndex === -1 && playlist.length > 0) {

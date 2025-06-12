@@ -1,0 +1,29 @@
+{
+  "name": "ios9-navidrome-web-player",
+  "version": "1.0.0",
+  "description": "a very lightweight, iOS 9-compatible web client for Navidrome/Subsonic servers, designed with a super simple aesthetic and a lot of room for imporvement. Pretty narrow use-case, but if you just found your old ipod touch or just added some web functionalities to your iPod classic and want to put to use that enormous self-hosted music library, this was made with exactly you in mind.",
+  "main": "config.example.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "concurrently \"http-server -S -C cert.pem -K key.pem -p 8080\" \"node log-server.js\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sashavrg/ios9-navidrome-web-player.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sashavrg/ios9-navidrome-web-player/issues"
+  },
+  "homepage": "https://github.com/sashavrg/ios9-navidrome-web-player#readme",
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "http-server": "^14.1.1",
+    "live-server": "^1.2.2"
+  }
+}
